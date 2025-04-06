@@ -20,7 +20,7 @@ import { exportExcel } from '../utils/export'
 import { isFunction } from '../utils/is'
 import LuckyExcel from 'luckyexcel'
 import * as Y from 'yjs'
-import { WebsocketProvider } from 'y-websocket'
+ import { WebsocketProvider } from 'y-websocket'
 
 // Reactive state
 const isMaskShow = ref(false)
@@ -57,7 +57,6 @@ const syncToYJS = () => {
   if (window.luckysheet) {
     const sheets = window.luckysheet.getAllSheets()
     const currentSheets = sharedData.get('sheets')
-    // Avoid unnecessary updates to prevent infinite loops
     if (JSON.stringify(sheets) !== JSON.stringify(currentSheets)) {
       ydoc.transact(() => {
         sharedData.set('sheets', sheets)
@@ -66,27 +65,47 @@ const syncToYJS = () => {
   }
 }
 
-// Update LuckySheet from Yjs data
+// Update LuckySheet from Yjs data incrementally
 const updateFromYJS = () => {
-  const sheets = sharedData.get('sheets') || defaultSheet
-  if (sheets && window.luckysheet) {
-    const currentSheets = window.luckysheet.getAllSheets()
-    if (JSON.stringify(sheets) !== JSON.stringify(currentSheets)) {
-      isFunction(window.luckysheet.destroy) && window.luckysheet.destroy()
-      window.luckysheet.create({
-        container: 'luckysheet',
-        showinfobar: false,
-        data: sheets,
-        title: jsonData.value.info?.name || 'Collaborative Sheet',
-        userInfo: jsonData.value.info?.name?.creator || 'User',
-        hook: {
-          cellUpdateEdit: syncToYJS,
-          cellUpdated: syncToYJS,
-          sheetCreateAfter: syncToYJS,
-          sheetDeleted: syncToYJS,
-        },
+  const newSheets = sharedData.get('sheets') || defaultSheet
+  if (!window.luckysheet) return
+
+  const currentSheets = window.luckysheet.getAllSheets()
+  const currentSheetCount = currentSheets.length
+  const newSheetCount = newSheets.length;
+
+  // If sheet structure changes (e.g., added or removed sheets), recreate
+  if (currentSheetCount !== newSheetCount || 
+      currentSheets.some((s, i) => s.index !== newSheets[i]?.index)) {
+    isFunction(window.luckysheet.destroy) && window.luckysheet.destroy()
+    window.luckysheet.create({
+      container: 'luckysheet',
+      showinfobar: false,
+      data: newSheets,
+      title: jsonData.value.info?.name || 'Collaborative Sheet',
+      userInfo: jsonData.value.info?.name?.creator || 'User',
+      hook: {
+        cellUpdateEdit: syncToYJS,
+        cellUpdated: syncToYJS,
+        sheetCreateAfter: syncToYJS,
+        sheetDeleted: syncToYJS,
+      },
+    })
+  } else {
+    // Update only changed cells
+    newSheets.forEach((newSheet, sheetIdx) => {
+      const currentSheet = currentSheets.find(s => s.index === newSheet.index)
+      if (!currentSheet || !newSheet.data) return;
+
+      newSheet.data.forEach((newRow, rowIdx) => {
+        newRow.forEach((newCell, colIdx) => {
+          const currentCell = currentSheet.data[rowIdx]?.[colIdx]
+          if (JSON.stringify(newCell) !== JSON.stringify(currentCell)) {
+            window.luckysheet.setCellValue(rowIdx, colIdx, newCell?.v)
+          }
+        })
       })
-    }
+    })
   }
 }
 
@@ -125,7 +144,7 @@ const loadExcel = (evt) => {
         sheetDeleted: syncToYJS,
       },
     })
-    syncToYJS() // Sync to Yjs after creation
+    syncToYJS()
   })
 }
 
@@ -158,7 +177,7 @@ const selectExcel = (evt) => {
         sheetDeleted: syncToYJS,
       },
     })
-    syncToYJS() // Sync to Yjs after creation
+    syncToYJS()
   })
 }
 
@@ -184,7 +203,6 @@ onMounted(() => {
     }
   })
 
-  // Observe Yjs changes
   sharedData.observe(() => {
     updateFromYJS()
   })
