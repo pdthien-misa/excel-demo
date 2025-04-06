@@ -18,14 +18,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { exportExcel } from '../utils/export'
 import { isFunction } from '../utils/is'
 import LuckyExcel from 'luckyexcel'
+import * as Y from 'yjs'
+import { WebsocketProvider } from 'y-websocket'
 
 const isMaskShow = ref(false)
 const selected = ref('')
 const jsonData = ref({})
+const ydoc = new Y.Doc()
+const wsProvider = new WebsocketProvider('ws://localhost:3001', 'luckysheet-demo', ydoc)
+const sharedData = ydoc.getMap('luckysheet')
 const options = ref([
   { text: 'Money Manager.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/money-manager-2.xlsx' },
   {
@@ -85,6 +90,12 @@ const loadExcel = (evt) => {
       data: exportJson.sheets,
       title: exportJson.info.name,
       userInfo: exportJson.info.name.creator,
+      hook: {
+        cellUpdateEdit: syncToYJS,
+        cellUpdated: syncToYJS,
+        sheetCreateAfter: syncToYJS,
+        sheetDeleted: syncToYJS,
+      }
     })
   })
 }
@@ -115,6 +126,12 @@ const selectExcel = (evt) => {
       data: exportJson.sheets,
       title: exportJson.info.name,
       userInfo: exportJson.info.name.creator,
+      hook: {
+        cellUpdateEdit: syncToYJS,
+        cellUpdated: syncToYJS,
+        sheetCreateAfter: syncToYJS,
+        sheetDeleted: syncToYJS,
+      }
     })
   })
 }
@@ -138,10 +155,59 @@ const downloadExcel = () => {
 }
 
 // !!! create luckysheet after mounted
+// Hàm để đồng bộ dữ liệu từ Luckysheet sang YJS
+const syncToYJS = () => {
+  if (window.luckysheet) {
+    const sheets = window.luckysheet.getAllSheets()
+    sharedData.set('sheets', sheets)
+  }
+}
+
+// Hàm để cập nhật Luckysheet từ dữ liệu YJS
+const updateFromYJS = () => {
+  const sheets = sharedData.get('sheets')
+  if (sheets) {
+    isFunction(window?.luckysheet?.destroy) && window.luckysheet.destroy()
+    window.luckysheet.create({
+      container: 'luckysheet',
+      data: sheets,
+      hook: {
+        cellUpdateEdit: syncToYJS,
+        cellUpdated: syncToYJS,
+        sheetCreateAfter: syncToYJS,
+        sheetDeleted: syncToYJS,
+      }
+    })
+  }
+}
+
 onMounted(() => {
-  luckysheet.create({
+  // Khởi tạo Luckysheet
+  window.luckysheet.create({
     container: 'luckysheet',
+    hook: {
+      cellUpdateEdit: syncToYJS,
+      cellUpdated: syncToYJS,
+      sheetCreateAfter: syncToYJS,
+      sheetDeleted: syncToYJS,
+    }
   })
+
+  // Theo dõi thay đổi từ các client khác
+  sharedData.observe(() => {
+    updateFromYJS()
+  })
+})
+
+onUnmounted(() => {
+  // Cleanup kết nối websocket
+  if (wsProvider) {
+    wsProvider.destroy()
+  }
+  // Cleanup YJS doc
+  if (ydoc) {
+    ydoc.destroy()
+  }
 })
 </script>
 

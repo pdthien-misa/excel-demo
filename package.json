@@ -23,7 +23,9 @@
     "exceljs": "^4.3.0",
     "file-saver": "^2.0.5",
     "luckyexcel": "^1.0.1",
-    "vue": "^3.2.25"
+    "vue": "^3.2.25",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.24"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^2.2.0",
