@@ -20,7 +20,7 @@ import { exportExcel } from '../utils/export'
 import { isFunction } from '../utils/is'
 import LuckyExcel from 'luckyexcel'
 import * as Y from 'yjs'
- import { WebsocketProvider } from 'y-websocket'
+import { WebsocketProvider } from 'y-websocket'
 
 // Reactive state
 const isMaskShow = ref(false)
@@ -65,14 +65,14 @@ const syncToYJS = () => {
   }
 }
 
-// Update LuckySheet from Yjs data incrementally
+// Update LuckySheet from Yjs data incrementally, including formatting
 const updateFromYJS = () => {
   const newSheets = sharedData.get('sheets') || defaultSheet
   if (!window.luckysheet) return
 
   const currentSheets = window.luckysheet.getAllSheets()
   const currentSheetCount = currentSheets.length
-  const newSheetCount = newSheets.length;
+  const newSheetCount = newSheets.length
 
   // If sheet structure changes (e.g., added or removed sheets), recreate
   if (currentSheetCount !== newSheetCount || 
@@ -92,16 +92,34 @@ const updateFromYJS = () => {
       },
     })
   } else {
-    // Update only changed cells
+    // Update only changed cells with value and formatting
     newSheets.forEach((newSheet, sheetIdx) => {
       const currentSheet = currentSheets.find(s => s.index === newSheet.index)
-      if (!currentSheet || !newSheet.data) return;
+      if (!currentSheet || !newSheet.data) return
 
       newSheet.data.forEach((newRow, rowIdx) => {
         newRow.forEach((newCell, colIdx) => {
-          const currentCell = currentSheet.data[rowIdx]?.[colIdx]
+          const currentCell = currentSheet.data[rowIdx]?.[colIdx] || {}
           if (JSON.stringify(newCell) !== JSON.stringify(currentCell)) {
-            window.luckysheet.setCellValue(rowIdx, colIdx, newCell?.v)
+            const sheetIndex = newSheet.index
+            // Update cell value
+            if (newCell?.v !== currentCell?.v) {
+              window.luckysheet.setCellValue(rowIdx, colIdx, newCell?.v, sheetIndex)
+            }
+            // Update formatting attributes if they differ
+            if (newCell?.bl !== currentCell?.bl) {
+              window.luckysheet.setCellFormat(rowIdx, colIdx, 'bl', newCell?.bl || 0, sheetIndex)
+            }
+            if (newCell?.it !== currentCell?.it) {
+              window.luckysheet.setCellFormat(rowIdx, colIdx, 'it', newCell?.it || 0, sheetIndex)
+            }
+            if (newCell?.fc !== currentCell?.fc) {
+              window.luckysheet.setCellFormat(rowIdx, colIdx, 'fc', newCell?.fc || '#000000', sheetIndex)
+            }
+            if (newCell?.fs !== currentCell?.fs) {
+              window.luckysheet.setCellFormat(rowIdx, colIdx, 'fs', newCell?.fs || 11, sheetIndex)
+            }
+            // Add more formatting attributes as needed (e.g., bg, ff, etc.)
           }
         })
       })
