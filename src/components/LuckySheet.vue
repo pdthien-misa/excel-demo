@@ -85,10 +85,9 @@ const updateFromYJS = () => {
       title: jsonData.value.info?.name || 'Collaborative Sheet',
       userInfo: jsonData.value.info?.name?.creator || 'User',
       hook: {
-        cellUpdateEdit: syncToYJS,
-        cellUpdated: syncToYJS,
         sheetCreateAfter: syncToYJS,
         sheetDeleted: syncToYJS,
+        updated: syncToYJS, // Added to catch general updates
       },
     })
   } else {
@@ -119,7 +118,6 @@ const updateFromYJS = () => {
             if (newCell?.fs !== currentCell?.fs) {
               window.luckysheet.setCellFormat(rowIdx, colIdx, 'fs', newCell?.fs || 11, sheetIndex)
             }
-            // Add more formatting attributes as needed (e.g., bg, ff, etc.)
           }
         })
       })
@@ -156,10 +154,9 @@ const loadExcel = (evt) => {
       title: exportJson.info.name,
       userInfo: exportJson.info.name.creator,
       hook: {
-        cellUpdateEdit: syncToYJS,
-        cellUpdated: syncToYJS,
         sheetCreateAfter: syncToYJS,
         sheetDeleted: syncToYJS,
+        updated: syncToYJS, // Added to catch general updates
       },
     })
     syncToYJS()
@@ -189,10 +186,9 @@ const selectExcel = (evt) => {
       title: exportJson.info.name,
       userInfo: exportJson.info.name.creator,
       hook: {
-        cellUpdateEdit: syncToYJS,
-        cellUpdated: syncToYJS,
         sheetCreateAfter: syncToYJS,
         sheetDeleted: syncToYJS,
+        updated: syncToYJS, // Added to catch general updates
       },
     })
     syncToYJS()
@@ -212,10 +208,9 @@ onMounted(() => {
         showinfobar: false,
         data: sheets,
         hook: {
-          cellUpdateEdit: syncToYJS,
-          cellUpdated: syncToYJS,
           sheetCreateAfter: syncToYJS,
           sheetDeleted: syncToYJS,
+          updated: syncToYJS, // Added to catch general updates
         },
       })
     }
