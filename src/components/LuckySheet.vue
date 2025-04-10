@@ -1,13 +1,7 @@
 <template>
   <div style="position: absolute; top: 0">
     <input id="uploadBtn" type="file" @change="loadExcel" />
-    <span>Or Load remote xlsx file:</span>
-    <select v-model="selected" @change="selectExcel">
-      <option disabled value="">Choose</option>
-      <option v-for="option in options" :key="option.text" :value="option.value">
-        {{ option.text }}
-      </option>
-    </select>
+   
     <a href="javascript:void(0)" @click="downloadExcel">Download source xlsx file</a>
   </div>
   <div id="luckysheet"></div>
@@ -27,21 +21,15 @@ import { WebsocketProvider } from 'y-websocket'
 const isMaskShow = ref(false)
 const selected = ref('')
 const jsonData = ref({})
-const options = ref([
-  { text: 'Money Manager.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/money-manager-2.xlsx' },
-  { text: 'Activity costs tracker.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/Activity%20costs%20tracker.xlsx' },
-  { text: 'House cleaning checklist.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/House%20cleaning%20checklist.xlsx' },
-  { text: 'Student assignment planner.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/Student%20assignment%20planner.xlsx' },
-  { text: 'Credit card tracker.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/Credit%20card%20tracker.xlsx' },
-  { text: 'Blue timesheet.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/Blue%20timesheet.xlsx' },
-  { text: 'Student calendar (Mon).xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/Student%20calendar%20%28Mon%29.xlsx' },
-  { text: 'Blue mileage and expense report.xlsx', value: 'https://minio.cnbabylon.com/public/luckysheet/Blue%20mileage%20and%20expense%20report.xlsx' },
-])
 
-// Yjs setup
+// Yjs setup cho mỗi file
+const route = useRoute()
+const fileId = route.query.id || 'default'
+const roomName = `file_${fileId}`
+
 const ydoc = new Y.Doc()
-const wsProvider = new WebsocketProvider('ws://localhost:3001', 'luckysheet-demo', ydoc)
-const sharedData = ydoc.getMap('luckysheet')
+const wsProvider = new WebsocketProvider('ws://localhost:3001', roomName, ydoc)
+const sharedData = ydoc.getMap('sheets')
 
 // Default sheet for initial load
 const defaultSheet = [{
@@ -57,90 +45,49 @@ const defaultSheet = [{
 const syncToYJS = () => {
   if (window.luckysheet) {
     const sheets = window.luckysheet.getAllSheets()
-    const currentSheets = sharedData.get('sheets')
-    if (JSON.stringify(sheets) !== JSON.stringify(currentSheets)) {
-      // Cập nhật sheets trong YJS
-      ydoc.transact(() => {
-        sharedData.set('sheets', sheets)
-      })
+    if (JSON.stringify(sheets) !== JSON.stringify(sharedData.get('data'))) {
+      // Cập nhật sheets trong YJS của file hiện tại
+      sharedData.set('data', sheets)
       
-      // Cập nhật thời gian sửa đổi của file
-      const route = useRoute()
-      const fileId = route.query.id
-      if (fileId) {
-        const filesDoc = new Y.Doc()
-        const filesProvider = new WebsocketProvider('ws://localhost:3001', 'excel-files', filesDoc)
-        const filesMap = filesDoc.getMap('files')
-        
-        const currentFile = filesMap.get(fileId)
-        if (currentFile) {
-          currentFile.modified = new Date().toISOString()
-          filesMap.set(fileId, currentFile)
-        }
-        
-        filesProvider.destroy()
-        filesDoc.destroy()
+      // Cập nhật thời gian sửa đổi của file trong danh sách files
+      const filesDoc = new Y.Doc()
+      const filesProvider = new WebsocketProvider('ws://localhost:3001', 'excel-files', filesDoc)
+      const filesMap = filesDoc.getMap('files')
+      
+      const currentFile = filesMap.get(fileId)
+      if (currentFile) {
+        currentFile.modified = new Date().toISOString()
+        currentFile.sheets = sheets
+        filesMap.set(fileId, currentFile)
       }
+      
+      filesProvider.destroy()
+      filesDoc.destroy()
     }
   }
 }
 
-// Update LuckySheet from Yjs data incrementally, including formatting
+// Update LuckySheet from Yjs data
 const updateFromYJS = () => {
-  const newSheets = sharedData.get('sheets') || defaultSheet
-  if (!window.luckysheet) return
+  const sheets = sharedData.get('data')
+  if (!sheets || !window.luckysheet) return
 
   const currentSheets = window.luckysheet.getAllSheets()
-  const currentSheetCount = currentSheets.length
-  const newSheetCount = newSheets.length
-
-  // If sheet structure changes (e.g., added or removed sheets), recreate
-  if (currentSheetCount !== newSheetCount || 
-      currentSheets.some((s, i) => s.index !== newSheets[i]?.index)) {
+  
+  // Nếu có sự thay đổi về cấu trúc sheet hoặc dữ liệu
+  if (JSON.stringify(currentSheets) !== JSON.stringify(sheets)) {
     isFunction(window.luckysheet.destroy) && window.luckysheet.destroy()
+    
     window.luckysheet.create({
       container: 'luckysheet',
       showinfobar: false,
-      data: newSheets,
-      title: jsonData.value.info?.name || 'Collaborative Sheet',
-      userInfo: jsonData.value.info?.name?.creator || 'User',
+      data: sheets,
       hook: {
+        cellUpdateEdit: syncToYJS,
+        cellUpdated: syncToYJS,
         sheetCreateAfter: syncToYJS,
         sheetDeleted: syncToYJS,
-        updated: syncToYJS, // Added to catch general updates
-      },
-    })
-  } else {
-    // Update only changed cells with value and formatting
-    newSheets.forEach((newSheet, sheetIdx) => {
-      const currentSheet = currentSheets.find(s => s.index === newSheet.index)
-      if (!currentSheet || !newSheet.data) return
-
-      newSheet.data.forEach((newRow, rowIdx) => {
-        newRow.forEach((newCell, colIdx) => {
-          const currentCell = currentSheet.data[rowIdx]?.[colIdx] || {}
-          if (JSON.stringify(newCell) !== JSON.stringify(currentCell)) {
-            const sheetIndex = newSheet.index
-            // Update cell value
-            if (newCell?.v !== currentCell?.v) {
-              window.luckysheet.setCellValue(rowIdx, colIdx, newCell?.v, sheetIndex)
-            }
-            // Update formatting attributes if they differ
-            if (newCell?.bl !== currentCell?.bl) {
-              window.luckysheet.setCellFormat(rowIdx, colIdx, 'bl', newCell?.bl || 0, sheetIndex)
-            }
-            if (newCell?.it !== currentCell?.it) {
-              window.luckysheet.setCellFormat(rowIdx, colIdx, 'it', newCell?.it || 0, sheetIndex)
-            }
-            if (newCell?.fc !== currentCell?.fc) {
-              window.luckysheet.setCellFormat(rowIdx, colIdx, 'fc', newCell?.fc || '#000000', sheetIndex)
-            }
-            if (newCell?.fs !== currentCell?.fs) {
-              window.luckysheet.setCellFormat(rowIdx, colIdx, 'fs', newCell?.fs || 11, sheetIndex)
-            }
-          }
-        })
-      })
+      }
     })
   }
 }
@@ -216,51 +163,72 @@ const selectExcel = (evt) => {
 }
 
 const downloadExcel = () => {
-  exportExcel(sharedData.get('sheets') || window.luckysheet.getAllSheets(), '下载')
+  const fileName = route.state?.excelData?.name || 'spreadsheet'
+  exportExcel(window.luckysheet.getAllSheets(), fileName)
 }
 
 onMounted(() => {
-  const route = useRoute()
-  
-  wsProvider.on('status', (event) => {
-    if (event.status === 'connected') {
-      let initData = {}
-
-      // Kiểm tra nếu có data mới từ ExcelCreator
-      if (route.query.new === 'true' && route.state?.excelData) {
-        initData = route.state.excelData
-        // Cập nhật shared data với file mới
-        sharedData.set('sheets', initData.sheets)
+  // Theo dõi kết nối websocket
+  wsProvider.on('status', ({ status }) => {
+    if (status === 'connected') {
+      // Khởi tạo data từ route state hoặc YJS
+      const routeState = route.state?.excelData
+      console.log('routeState', routeState)
+      if (routeState) {
+        // Nếu là file mới hoặc được mở từ danh sách
+        window.luckysheet.create({
+          container: 'luckysheet',
+          showinfobar: false,
+          data: routeState.sheets,
+          title: routeState.name,
+          hook: {
+            cellUpdateEdit: syncToYJS,
+            cellUpdated: syncToYJS,
+            sheetCreateAfter: syncToYJS,
+            sheetDeleted: syncToYJS,
+          }
+        })
+        
+        // Lưu vào YJS cho việc đồng bộ
+        sharedData.set('data', routeState.sheets)
       } else {
-        // Lấy data từ shared data hoặc dùng default
-        initData.sheets = sharedData.get('sheets') || defaultSheet
+        // Lấy data từ YJS nếu có
+        const sheets = sharedData.get('data')
+        window.luckysheet.create({
+          container: 'luckysheet',
+          showinfobar: false,
+          data: sheets,
+          title: 'Spreadsheet',
+          hook: {
+            cellUpdateEdit: syncToYJS,
+            cellUpdated: syncToYJS,
+            sheetCreateAfter: syncToYJS,
+            sheetDeleted: syncToYJS,
+          }
+        })
       }
-
-      // Khởi tạo Luckysheet với data
-      window.luckysheet.create({
-        container: 'luckysheet',
-        showinfobar: false,
-        data: initData.sheets,
-        title: initData.info?.name || 'New Excel',
-        hook: {
-          sheetCreateAfter: syncToYJS,
-          sheetDeleted: syncToYJS,
-          updated: syncToYJS,
-        },
-      })
     }
   })
 
-  // Theo dõi thay đổi từ các client khác
+  // Theo dõi thay đổi từ YJS
   sharedData.observe(() => {
-    updateFromYJS()
+    const sheets = sharedData.get('data')
+    if (sheets) {
+      updateFromYJS()
+    }
   })
 })
 
 onUnmounted(() => {
-  wsProvider.destroy()
-  ydoc.destroy()
-  isFunction(window?.luckysheet?.destroy) && window.luckysheet.destroy()
+  if (wsProvider) {
+    wsProvider.destroy()
+  }
+  if (ydoc) {
+    ydoc.destroy()
+  }
+  if (window.luckysheet && isFunction(window.luckysheet.destroy)) {
+    window.luckysheet.destroy()
+  }
 })
 </script>
 

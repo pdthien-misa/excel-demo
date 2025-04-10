@@ -54,15 +54,25 @@ const files = ref([])
 const ydoc = new Y.Doc()
 const wsProvider = new WebsocketProvider('ws://localhost:3001', 'excel-files', ydoc)
 const filesMap = ydoc.getMap('files')
+const filesMapRef = ref(filesMap)
 
 // Lắng nghe thay đổi từ YJS
 onMounted(() => {
-  // Khởi tạo danh sách files từ YJS
-  files.value = Array.from(filesMap.values())
+  // Đợi kết nối websocket
+  wsProvider.on('status', ({ status }) => {
+    if (status === 'connected') {
+      // Khởi tạo danh sách files từ YJS
+      files.value = Array.from(filesMapRef.value.values()).sort((a, b) => {
+        return new Date(b.modified) - new Date(a.modified)
+      })
 
-  // Lắng nghe sự thay đổi
-  filesMap.observe(() => {
-    files.value = Array.from(filesMap.values())
+      // Lắng nghe sự thay đổi
+      filesMapRef.value.observe(() => {
+        files.value = Array.from(filesMapRef.value.values()).sort((a, b) => {
+          return new Date(b.modified) - new Date(a.modified)
+        })
+      })
+    }
   })
 })
 
@@ -104,12 +114,42 @@ const createFile = () => {
 }
 
 // Mở file để chỉnh sửa
-const openFile = (file) => {
+const openFile = async (file) => {
+  // Tạo Y.Doc mới cho file này
+  const fileDoc = new Y.Doc()
+  const fileProvider = new WebsocketProvider('ws://localhost:3001', `file_${file.id}`, fileDoc)
+  
+  // Đợi kết nối để đảm bảo dữ liệu đồng bộ
+  await new Promise(resolve => {
+    fileProvider.on('status', ({ status }) => {
+      if (status === 'connected') {
+        resolve()
+      }
+    })
+  })
+
+  // Chuyển đến trang editor với data của file
   router.push({
     name: 'editor',
     query: { id: file.id },
-    state: { excelData: file }
+    state: { 
+      excelData: {
+        name: file.name,
+        sheets: file.sheets || [{
+          name: 'Sheet1',
+          index: 0,
+          status: 1,
+          order: 0,
+          celldata: [],
+          config: {}
+        }]
+      }
+    }
   })
+
+  // Cleanup
+  fileProvider.destroy()
+  fileDoc.destroy()
 }
 </script>
 
