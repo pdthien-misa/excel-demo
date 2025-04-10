@@ -18,6 +18,7 @@
         </div>
         <div class="file-actions">
           <button class="edit-btn" @click="openFile(file)">Chỉnh sửa</button>
+          <button class="delete-btn" @click="showDeleteConfirm(file)">Xóa</button>
         </div>
       </div>
       <div v-if="!files.length" class="no-files">
@@ -38,6 +39,20 @@
         <div class="popup-actions">
           <button class="cancel-btn" @click="showRenamePopupFlag = false">Hủy</button>
           <button class="confirm-btn" @click="renameFile">Lưu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Popup -->
+    <div v-if="showDeletePopup" class="popup-overlay">
+      <div class="popup">
+        <h3>Xóa File</h3>
+        <p class="confirm-message">
+          Bạn có chắc chắn muốn xóa file "<strong>{{ selectedFile?.name }}</strong>"?
+        </p>
+        <div class="popup-actions">
+          <button class="cancel-btn" @click="showDeletePopup = false">Hủy</button>
+          <button class="delete-confirm-btn" @click="deleteFile">Xóa</button>
         </div>
       </div>
     </div>
@@ -70,6 +85,7 @@ import { WebsocketProvider } from 'y-websocket'
 const router = useRouter()
 const showCreatePopup = ref(false)
 const showRenamePopupFlag = ref(false)
+const showDeletePopup = ref(false)
 const newFileName = ref('')
 const newRenameValue = ref('')
 const selectedFile = ref(null)
@@ -172,6 +188,44 @@ const renameFile = () => {
     showRenamePopupFlag.value = false
     selectedFile.value = null
     newRenameValue.value = ''
+  }
+}
+
+// Hiển thị popup xác nhận xóa
+const showDeleteConfirm = (file) => {
+  selectedFile.value = file
+  showDeletePopup.value = true
+}
+
+// Xóa file
+const deleteFile = async () => {
+  const file = selectedFile.value
+  if (file) {
+    // Xóa file khỏi danh sách
+    filesMap.delete(file.id)
+
+    // Xóa data trong room của file
+    const fileDoc = new Y.Doc()
+    const fileProvider = new WebsocketProvider('ws://localhost:3001', `file_${file.id}`, fileDoc)
+    
+    await new Promise(resolve => {
+      fileProvider.on('status', ({ status }) => {
+        if (status === 'connected') {
+          // Xóa toàn bộ data
+          const sharedData = fileDoc.getMap('sheets')
+          sharedData.clear()
+          resolve()
+        }
+      })
+    })
+
+    // Cleanup
+    fileProvider.destroy()
+    fileDoc.destroy()
+    
+    // Đóng popup
+    showDeletePopup.value = false
+    selectedFile.value = null
   }
 }
 
@@ -311,6 +365,43 @@ const openFile = async (file) => {
 
 .edit-btn:hover {
   background-color: #1976D2;
+}
+
+.delete-btn {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+.delete-btn:hover {
+  background-color: #c82333;
+}
+
+.delete-confirm-btn {
+  padding: 8px 16px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.delete-confirm-btn:hover {
+  background: #c82333;
+}
+
+.confirm-message {
+  margin-bottom: 20px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.confirm-message strong {
+  color: #2c3e50;
 }
 
 .no-files {
