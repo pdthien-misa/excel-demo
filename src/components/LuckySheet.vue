@@ -16,6 +16,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { exportExcel } from '../utils/export'
 import { isFunction } from '../utils/is'
 import LuckyExcel from 'luckyexcel'
@@ -58,9 +59,28 @@ const syncToYJS = () => {
     const sheets = window.luckysheet.getAllSheets()
     const currentSheets = sharedData.get('sheets')
     if (JSON.stringify(sheets) !== JSON.stringify(currentSheets)) {
+      // Cập nhật sheets trong YJS
       ydoc.transact(() => {
         sharedData.set('sheets', sheets)
       })
+      
+      // Cập nhật thời gian sửa đổi của file
+      const route = useRoute()
+      const fileId = route.query.id
+      if (fileId) {
+        const filesDoc = new Y.Doc()
+        const filesProvider = new WebsocketProvider('ws://localhost:3001', 'excel-files', filesDoc)
+        const filesMap = filesDoc.getMap('files')
+        
+        const currentFile = filesMap.get(fileId)
+        if (currentFile) {
+          currentFile.modified = new Date().toISOString()
+          filesMap.set(fileId, currentFile)
+        }
+        
+        filesProvider.destroy()
+        filesDoc.destroy()
+      }
     }
   }
 }
@@ -200,22 +220,38 @@ const downloadExcel = () => {
 }
 
 onMounted(() => {
+  const route = useRoute()
+  
   wsProvider.on('status', (event) => {
     if (event.status === 'connected') {
-      const sheets = sharedData.get('sheets') || defaultSheet
+      let initData = {}
+
+      // Kiểm tra nếu có data mới từ ExcelCreator
+      if (route.query.new === 'true' && route.state?.excelData) {
+        initData = route.state.excelData
+        // Cập nhật shared data với file mới
+        sharedData.set('sheets', initData.sheets)
+      } else {
+        // Lấy data từ shared data hoặc dùng default
+        initData.sheets = sharedData.get('sheets') || defaultSheet
+      }
+
+      // Khởi tạo Luckysheet với data
       window.luckysheet.create({
         container: 'luckysheet',
         showinfobar: false,
-        data: sheets,
+        data: initData.sheets,
+        title: initData.info?.name || 'New Excel',
         hook: {
           sheetCreateAfter: syncToYJS,
           sheetDeleted: syncToYJS,
-          updated: syncToYJS, // Added to catch general updates
+          updated: syncToYJS,
         },
       })
     }
   })
 
+  // Theo dõi thay đổi từ các client khác
   sharedData.observe(() => {
     updateFromYJS()
   })
