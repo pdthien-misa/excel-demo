@@ -8,7 +8,12 @@
     <div class="files-list">
       <div v-for="file in files" :key="file.id" class="file-item">
         <div class="file-info">
-          <span class="file-name">{{ file.name }}</span>
+          <div class="file-name-wrapper">
+            <span class="file-name">{{ file.name }}</span>
+            <button class="rename-btn" @click="showRenamePopup(file)">
+              <i>✎</i>
+            </button>
+          </div>
           <span class="file-date">{{ new Date(file.modified).toLocaleString() }}</span>
         </div>
         <div class="file-actions">
@@ -17,6 +22,23 @@
       </div>
       <div v-if="!files.length" class="no-files">
         Chưa có file nào. Hãy tạo file mới!
+      </div>
+    </div>
+
+    <!-- Rename File Popup -->
+    <div v-if="showRenamePopupFlag" class="popup-overlay">
+      <div class="popup">
+        <h3>Đổi tên File</h3>
+        <input 
+          v-model="newRenameValue" 
+          type="text" 
+          placeholder="Nhập tên file mới"
+          @keyup.enter="renameFile"
+        >
+        <div class="popup-actions">
+          <button class="cancel-btn" @click="showRenamePopupFlag = false">Hủy</button>
+          <button class="confirm-btn" @click="renameFile">Lưu</button>
+        </div>
       </div>
     </div>
 
@@ -47,8 +69,19 @@ import { WebsocketProvider } from 'y-websocket'
 
 const router = useRouter()
 const showCreatePopup = ref(false)
+const showRenamePopupFlag = ref(false)
 const newFileName = ref('')
+const newRenameValue = ref('')
+const selectedFile = ref(null)
 const files = ref([])
+
+// Hàm xử lý tên file
+const processFileName = (name) => {
+  if (!name.toLowerCase().endsWith('.xlsx')) {
+    return name + '.xlsx'
+  }
+  return name
+}
 
 // Khởi tạo YJS document để lưu trữ danh sách files
 const ydoc = new Y.Doc()
@@ -85,7 +118,7 @@ const createFile = () => {
 
   const newFile = {
     id: Date.now().toString(),
-    name: newFileName.value.trim(),
+    name: processFileName(newFileName.value.trim()),
     created: new Date().toISOString(),
     modified: new Date().toISOString(),
     sheets: [{
@@ -111,6 +144,35 @@ const createFile = () => {
     query: { id: newFile.id },
     state: { excelData: newFile }
   })
+}
+
+// Hiển thị popup đổi tên
+const showRenamePopup = (file) => {
+  selectedFile.value = file
+  newRenameValue.value = file.name.replace(/\.xlsx$/i, '')
+  showRenamePopupFlag.value = true
+}
+
+// Đổi tên file
+const renameFile = () => {
+  if (!newRenameValue.value.trim()) {
+    alert('Vui lòng nhập tên file!')
+    return
+  }
+
+  const file = selectedFile.value
+  if (file) {
+    const updatedFile = {
+      ...file,
+      name: processFileName(newRenameValue.value.trim()),
+      modified: new Date().toISOString()
+    }
+    
+    filesMap.set(file.id, updatedFile)
+    showRenamePopupFlag.value = false
+    selectedFile.value = null
+    newRenameValue.value = ''
+  }
 }
 
 // Mở file để chỉnh sửa
@@ -205,9 +267,32 @@ const openFile = async (file) => {
   gap: 4px;
 }
 
+.file-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .file-name {
   font-weight: 500;
   color: #2c3e50;
+}
+
+.rename-btn {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rename-btn:hover {
+  background-color: #f5f5f5;
+  color: #2196F3;
 }
 
 .file-date {
